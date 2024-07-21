@@ -1,9 +1,12 @@
 version: '3.7'
 
 services:
-  pgvector:
-    container_name: pgvector
-    image: pgvector/pgvector:0.6.2-pg16
+  pgvectorscale:
+    container_name: pgvectorscale
+    image: samarthp/pgvectorscale
+    build:
+      context: .
+      dockerfile: ./Dockerfile
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
@@ -16,12 +19,8 @@ services:
     shm_size: 8g
     ports:
       - 54321:5432
-    logging:
-      driver: "json-file"
-      options:
-        max-file: 1
-        max-size: 10m
     deploy:
       resources:
         limits:
+          cpus: '2'
           memory: 4Gb

@@ -5,17 +5,11 @@ import psycopg
 from pgvector.psycopg import register_vector
 
 from dataset_reader.base_reader import Record
-from engine.base_client import IncompatibilityError
-from engine.base_client.distances import Distance
 from engine.base_client.upload import BaseUploader
-from engine.clients.pgvector.config import get_db_config
+from engine.clients.pgvectorscale.config import get_db_config
 
 
-class PgVectorUploader(BaseUploader):
-    DISTANCE_MAPPING = {
-        Distance.L2: "vector_l2_ops",
-        Distance.COSINE: "vector_cosine_ops",
-    }
+class PgVectorScaleUploader(BaseUploader):
     conn = None
     cur = None
     upload_params = {}
@@ -37,7 +31,7 @@ class PgVectorUploader(BaseUploader):
         vectors = np.array(vectors)
         # Copy is faster than insert
         with cls.cur.copy(
-            "COPY items_pgvector (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
+            "COPY items_pgvectorscale (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
         ) as copy:
             copy.set_types(["integer", "vector"])
             for i, embedding in zip(ids, vectors):
@@ -45,27 +39,20 @@ class PgVectorUploader(BaseUploader):
 
     @classmethod
     def post_upload(cls, distance):
-        try:
-            hnsw_distance_type = cls.DISTANCE_MAPPING[distance]
-        except KeyError:
-            raise IncompatibilityError(f"Unsupported distance metric: {distance}")
-
-        print(f"pgvector building hnsw index")
-        cls.conn.execute("SET max_parallel_workers = 128")
-        cls.conn.execute("SET max_parallel_maintenance_workers = 128")
+        print(f"pgvectorscale building disk ann index")
         cls.conn.execute(
-            f"CREATE INDEX ON items_pgvector USING hnsw (embedding {hnsw_distance_type}) WITH (m = {cls.upload_params['hnsw_config']['m']}, ef_construction = {cls.upload_params['hnsw_config']['ef_construct']})"
+            f"CREATE INDEX ON items_pgvectorscale USING diskann(embedding);"
         )
         print(f"pgvectorscale done with indexing")
 
         return {}
-
+    
     @classmethod
     def delete_client(cls):
         if cls.cur:
             cls.cur.close()
             cls.conn.close()
-
+    
     @classmethod
     def insert_records(cls, batch: List[Record]):
         vectors = []
@@ -78,7 +65,7 @@ class PgVectorUploader(BaseUploader):
 
         for i, embedding in zip(ids, vectors):
             # insert query for the record
-            insert_query = "INSERT INTO items_pgvector (id, embedding) VALUES (%s, %s)"
+            insert_query = "INSERT INTO items_pgvectorscale (id, embedding) VALUES (%s, %s)"
             embedding_str = ','.join(map(str, embedding))
             cls.cur.execute(insert_query, (i, f'[{embedding_str}]',))
             cls.conn.commit()

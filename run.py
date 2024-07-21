@@ -22,6 +22,7 @@ def run(
     skip_search: bool = False,
     skip_if_exists: bool = False,
     exit_on_error: bool = True,
+    insert_record_test: bool = False,
     timeout: float = 86400.0,
 ):
     """
@@ -57,7 +58,7 @@ def run(
 
                 with stopit.ThreadingTimeout(timeout) as tt:
                     client.run_experiment(
-                        dataset, skip_upload, skip_search, skip_if_exists
+                        dataset, skip_upload, skip_search, skip_if_exists, insert_record_test
                     )
                 client.delete_client()
 

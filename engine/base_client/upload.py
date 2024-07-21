@@ -1,3 +1,4 @@
+import numpy as np
 import time
 from multiprocessing import get_context
 from typing import Iterable, List
@@ -83,6 +84,50 @@ class BaseUploader:
     def _upload_batch(cls, batch: List[Record]) -> float:
         start = time.perf_counter()
         cls.upload_batch(batch)
+        return time.perf_counter() - start
+    
+    def insert(self, records: List[Record]):
+        self.init_client(
+            self.host, None, self.connection_params, self.upload_params
+        )
+        parallel = self.upload_params.get("parallel", 1)
+        print("Parallel insert: ", parallel)
+        batch_size = 1
+        start = time.perf_counter()
+        
+
+        ctx = get_context(self.get_mp_start_method())
+        with ctx.Pool(
+            processes=int(parallel),
+            initializer=self.__class__.init_client,
+            initargs=(
+                self.host,
+                None,
+                self.connection_params,
+                self.upload_params,
+            ),
+        ) as pool:
+            latencies = list(
+                pool.imap(
+                    self.__class__._insert_records,
+                    iter_batches(tqdm.tqdm(records), batch_size),
+                )
+            )
+
+        total_time = time.perf_counter() - start
+        return {
+            "std_time": np.std(latencies),
+            "min_time": np.min(latencies),
+            "max_time": np.max(latencies),
+            "rps": len(latencies) / total_time,
+            "p95_time": np.percentile(latencies, 95),
+            "p99_time": np.percentile(latencies, 99),
+        }
+    
+    @classmethod
+    def _insert_records(self, records: List[Record]):
+        start = time.perf_counter()
+        self.insert_records(records)
         return time.perf_counter() - start
 
     @classmethod

@@ -12,7 +12,7 @@ from engine.base_client.upload import BaseUploader
 RESULTS_DIR = ROOT_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
-DETAILED_RESULTS = bool(int(os.getenv("DETAILED_RESULTS", False)))
+DETAILED_RESULTS = bool(int(os.getenv("DETAILED_RESULTS", True)))
 
 
 class BaseClient:
@@ -78,12 +78,30 @@ class BaseClient:
             }
             out.write(json.dumps(upload_stats, indent=2))
 
+    def save_insert_results(
+        self, dataset_name: str, results: dict
+    ):
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
+        experiments_file = f"{self.name}-{dataset_name}-insert-{timestamp}.json"
+        with open(RESULTS_DIR / experiments_file, "w") as out:
+            upload_stats = {
+                "params": {
+                    "experiment": self.name,
+                    "engine": self.engine,
+                    "dataset": dataset_name,
+                },
+                "results": results,
+            }
+            out.write(json.dumps(upload_stats, indent=2))
+
     def run_experiment(
         self,
         dataset: Dataset,
         skip_upload: bool = False,
         skip_search: bool = False,
         skip_if_exists: bool = True,
+        insert_record_test: bool = False,
     ):
         execution_params = self.configurator.execution_params(
             distance=dataset.config.distance, vector_size=dataset.config.vector_size
@@ -126,17 +144,7 @@ class BaseClient:
             print("Experiment stage: Search")
             for search_id, searcher in enumerate(self.searchers):
 
-                if skip_if_exists:
-                    glob_pattern = (
-                        f"{self.name}-{dataset.config.name}-search-{search_id}-*.json"
-                    )
-                    existing_results = list(RESULTS_DIR.glob(glob_pattern))
-                    print("Pattern", glob_pattern, "Results:", existing_results)
-                    if len(existing_results) >= 1:
-                        print(
-                            f"Skipping search {search_id} as it already exists",
-                        )
-                        continue
+                print(f"Using searcher #{search_id} with params: {searcher.search_params}")
 
                 search_params = {**searcher.search_params}
                 search_stats = searcher.search_all(
@@ -150,6 +158,19 @@ class BaseClient:
                 self.save_search_results(
                     dataset.config.name, search_stats, search_id, search_params
                 )
+
+        if insert_record_test:
+            print("Experiment stage: Insert Records")
+            records = list(reader.read_data())
+            records = records[:10000]
+
+            print(f"Inserting {len(records)} records")
+            insert_stats = self.uploader.insert(records)
+            self.save_insert_results(
+                dataset.config.name,
+                insert_stats,
+            )
+
         print("Experiment stage: Done")
         print("Results saved to: ", RESULTS_DIR)
 
